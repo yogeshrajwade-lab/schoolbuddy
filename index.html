@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>SchoolBuddy | Homework planner</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #1b263a; background: #f4f3ee; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1020px; margin: auto; padding: clamp(1rem, 4vw, 3rem); }
+    header { background: #162746; color: white; border-radius: 26px; padding: clamp(1.4rem, 5vw, 3rem); margin-bottom: 1.25rem; }
+    h1 { font-size: clamp(2.1rem, 6vw, 3.5rem); letter-spacing: -.06em; margin: 0; }
+    h2 { font-size: 1.25rem; letter-spacing: -.025em; margin: 0 0 1rem; }
+    .subtitle { color: #d8e3f9; margin: .5rem 0 1.25rem; }
+    .progress { display: grid; gap: .45rem; max-width: 30rem; font-size: .9rem; }
+    progress { width: 100%; accent-color: #a5dfad; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); align-items: start; gap: 1.25rem; }
+    section { background: #fff; border: 1px solid #dedfd9; border-radius: 21px; padding: clamp(1rem, 3vw, 1.5rem); min-width: 0; }
+    form { display: grid; gap: .85rem; }
+    label { display: grid; gap: .35rem; font-size: .92rem; font-weight: 650; }
+    input, select, button { font: inherit; color: inherit; min-height: 44px; border: 1px solid #aeb9cc; border-radius: 9px; background: white; padding: .55rem .7rem; }
+    input { width: 100%; min-width: 0; }
+    button { cursor: pointer; }
+    button:hover { background: #edf2fc; }
+    :focus-visible { outline: 3px solid #2a63c8; outline-offset: 2px; }
+    .primary { background: #244f99; border-color: #244f99; color: white; font-weight: 650; }
+    .primary:hover { background: #1b3e79; }
+    .actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .actions .primary { flex: 1; }
+    .top { display: flex; gap: .6rem; align-items: center; justify-content: space-between; margin-bottom: .6rem; flex-wrap: wrap; }
+    .top h2 { margin: 0; }
+    .assignment { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: .45rem; border-top: 1px solid #e3e7ed; padding: .8rem 0; }
+    .assignment input { width: 24px; margin: 0; }
+    .assignment strong { display: block; overflow-wrap: anywhere; margin: .2rem 0; }
+    .assignment p { margin: .25rem 0 0; font-size: .87rem; color: #465671; overflow-wrap: anywhere; }
+    .assignment .tools { display: flex; gap: .3rem; flex-wrap: wrap; }
+    .assignment button { font-size: .82rem; padding: .4rem .55rem; }
+    .overdue { color: #a1272b; font-weight: 700; }
+    .done strong { color: #4d5b70; text-decoration: line-through; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    #status, #storage-warning, #empty, footer { font-size: .9rem; color: #465671; }
+    #status { min-height: 1.2em; }
+    footer { margin: 1.25rem 0; }
+    [hidden] { display: none !important; }
+    @media (max-width: 690px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 420px) { .assignment { grid-template-columns: auto minmax(0, 1fr); } .tools { grid-column: 2; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>SchoolBuddy</h1>
+      <p class="subtitle">A simple homework planner for assignments and due dates.</p>
+      <div class="progress">
+        <label for="progress">Assignment progress</label>
+        <progress id="progress" max="1" value="0"></progress>
+        <span id="progress-text"></span>
+      </div>
+    </header>
+    <noscript><p>Enable JavaScript to use the homework planner.</p></noscript>
+    <p id="storage-warning" role="alert" hidden>Browser storage is unavailable. Changes will last until you close or refresh this page.</p>
+    <div class="layout">
+      <section aria-labelledby="form-heading">
+        <h2 id="form-heading">Add an assignment</h2>
+        <form id="form">
+          <label>Assignment <input id="title" name="title" required maxlength="100" autocomplete="off"></label>
+          <label>Subject <input id="subject" name="subject" required maxlength="50" autocomplete="off"></label>
+          <label>Due date <input id="due" name="due" type="date" required min="0001-01-01" max="9999-12-31"></label>
+          <div class="actions">
+            <button class="primary" id="save" type="submit">Add assignment</button>
+            <button id="cancel" type="button" hidden>Cancel edit</button>
+          </div>
+        </form>
+      </section>
+      <section aria-labelledby="list-heading">
+        <div class="top">
+          <h2 id="list-heading">Assignments</h2>
+          <label>Show <select id="filter">
+            <option value="all">All assignments</option>
+            <option value="open">Open</option>
+            <option value="overdue">Overdue</option>
+            <option value="done">Completed</option>
+          </select></label>
+        </div>
+        <p id="empty"></p>
+        <ul id="list"></ul>
+        <p id="status" role="status"></p>
+      </section>
+    </div>
+    <footer>Assignments are saved in this browser. Keep a separate copy of anything important.</footer>
+  </main>
+  <script>
+    'use strict';
+
+    const storageKey = 'schoolbuddy.assignments.v1';
+    const form = document.querySelector('#form');
+    const fields = ['title', 'subject', 'due'].map(name => form.elements.namedItem(name));
+    const filter = document.querySelector('#filter');
+    const list = document.querySelector('#list');
+    const empty = document.querySelector('#empty');
+    const status = document.querySelector('#status');
+    const warning = document.querySelector('#storage-warning');
+    const progress = document.querySelector('#progress');
+    const progressText = document.querySelector('#progress-text');
+    const cancel = document.querySelector('#cancel');
+    const save = document.querySelector('#save');
+    const heading = document.querySelector('#form-heading');
+    let assignments = [];
+    let editingId = null;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) ?? '[]');
+      if (Array.isArray(saved)) {
+        assignments = saved.filter(task =>
+          task && typeof task.id === 'string' && typeof task.title === 'string' &&
+          typeof task.subject === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(task.due) &&
+          typeof task.done === 'boolean'
+        );
+      }
+    } catch {
+      warning.hidden = false;
+    }
+
+    function persist() {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(assignments));
+        warning.hidden = true;
+      } catch {
+        warning.hidden = false;
+      }
+    }
+
+    function today() {
+      const now = new Date();
+      return [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+        .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0')).join('-');
+    }
+
+    function button(label, text, action) {
+      const control = document.createElement('button');
+      control.type = 'button';
+      control.textContent = label;
+      control.setAttribute('aria-label', label + ' ' + text);
+      control.addEventListener('click', action);
+      return control;
+    }
+
+    function resetForm() {
+      editingId = null;
+      form.reset();
+      for (const field of fields) field.setCustomValidity('');
+      heading.textContent = 'Add an assignment';
+      save.textContent = 'Add assignment';
+      cancel.hidden = true;
+    }
+
+    function edit(task) {
+      editingId = task.id;
+      fields[0].value = task.title;
+      fields[1].value = task.subject;
+      fields[2].value = task.due;
+      heading.textContent = 'Edit assignment';
+      save.textContent = 'Save changes';
+      cancel.hidden = false;
+      fields[0].focus();
+    }
+
+    function makeRow(task, isOverdue) {
+      const row = document.createElement('li');
+      row.className = task.done ? 'assignment done' : 'assignment';
+
+      const done = document.createElement('input');
+      done.type = 'checkbox';
+      done.checked = task.done;
+      done.setAttribute('aria-label', 'Completed: ' + task.title);
+      done.addEventListener('change', () => {
+        task.done = done.checked;
+        update(task.done ? 'Assignment completed.' : 'Assignment reopened.');
+        const replacement = [...list.querySelectorAll('input')].find(input => input.dataset.id === task.id);
+        (replacement ?? filter).focus();
+      });
+      done.dataset.id = task.id;
+
+      const details = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = task.title;
+      const meta = document.createElement('p');
+      const date = new Date(task.due + 'T00:00:00');
+      const formatted = Number.isNaN(date.getTime()) ? task.due :
+        date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      meta.textContent = task.subject + ' · Due ' + formatted;
+      if (isOverdue) {
+        const badge = document.createElement('span');
+        badge.className = 'overdue';
+        badge.textContent = ' · Overdue';
+        meta.append(badge);
+      }
+      details.append(title, meta);
+
+      const tools = document.createElement('div');
+      tools.className = 'tools';
+      tools.append(button('Edit', task.title, () => edit(task)),
+        button('Delete', task.title, () => {
+          if (!window.confirm('Delete “' + task.title + '”?')) return;
+          assignments = assignments.filter(item => item.id !== task.id);
+          if (editingId === task.id) resetForm();
+          update('Assignment deleted.');
+          filter.focus();
+        }));
+      row.append(done, details, tools);
+      return row;
+    }
+
+    function render() {
+      const day = today();
+      const isOverdue = task => !task.done && task.due < day;
+      const complete = assignments.filter(task => task.done).length;
+      progress.max = assignments.length || 1;
+      progress.value = complete;
+      progressText.textContent = complete + ' of ' + assignments.length + ' complete';
+
+      const visible = assignments.filter(task => {
+        switch (filter.value) {
+          case 'open': return !task.done;
+          case 'overdue': return isOverdue(task);
+          case 'done': return task.done;
+          default: return true;
+        }
+      }).sort((a, b) => Number(a.done) - Number(b.done) || a.due.localeCompare(b.due));
+
+      list.replaceChildren(...visible.map(task => makeRow(task, isOverdue(task))));
+      empty.hidden = visible.length > 0;
+      empty.textContent = assignments.length ? 'No assignments in this view.' : 'Add your first assignment to get started.';
+    }
+
+    function update(message) {
+      persist();
+      render();
+      status.textContent = message;
+    }
+
+    for (const field of fields) {
+      field.addEventListener('input', () => field.setCustomValidity(''));
+    }
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      const [title, subject, due] = fields.map(field => field.value.trim());
+      const blank = fields.slice(0, 2).find(field => !field.value.trim());
+      if (blank) {
+        blank.setCustomValidity('Enter a value.');
+        blank.reportValidity();
+        return;
+      }
+
+      const current = assignments.find(task => task.id === editingId);
+      if (current) {
+        Object.assign(current, { title, subject, due });
+      } else {
+        const id = globalThis.crypto?.randomUUID?.() ?? (Date.now() + '-' + Math.random());
+        assignments.push({ id, title, subject, due, done: false });
+      }
+      resetForm();
+      filter.value = 'all';
+      update(current ? 'Assignment updated.' : 'Assignment added.');
+      fields[0].focus();
+    });
+
+    cancel.addEventListener('click', () => {
+      resetForm();
+      fields[0].focus();
+    });
+    filter.addEventListener('change', render);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) render();
+    });
+    render();
+  </script>
+</body>
+</html>
